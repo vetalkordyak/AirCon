@@ -9,6 +9,7 @@
   "log_level": "INFO",
   "esphome_port": 6053,
   "esphome_web_port": 6052,
+  "esphome_advertise_ip": "",
   "port": 8888,
   "local_ip": "<ip address of AirCon server>"
 }

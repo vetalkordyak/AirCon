@@ -90,6 +90,13 @@ def ParseArguments() -> argparse.Namespace:
                              default=None,
                              help='Name to advertise the virtual ESPHome device as. '
                              'Defaults to the name of the first configured A/C.')
+  group_esphome.add_argument(
+      '--esphome_advertise_ip',
+      default=None,
+      help='IP address to advertise the ESPHome device as over Zeroconf/mDNS, if it differs '
+      'from the address this machine would pick on its own (e.g. HomeAssistant reaching this '
+      'server through a Docker bridge gateway rather than its real LAN IP). Leave unset to let '
+      'the ESPHome library auto-detect it.')
 
   parser_discovery = subparsers.add_parser('discovery', help='Runs the device discovery')
   parser_discovery.add_argument('app', choices=set(SECRET_MAP), help='The app used for the login.')
@@ -176,7 +183,7 @@ async def run(parsed_args):
   if parsed_args.esphome_port:
     tasks.append(
         run_esphome_server(devices, parsed_args.esphome_port, parsed_args.esphome_web_port,
-                           parsed_args.esphome_name))
+                           parsed_args.esphome_name, parsed_args.esphome_advertise_ip))
 
   async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(connect=5.0)) as session:
     await asyncio.gather(*tasks, notifier.start(session))

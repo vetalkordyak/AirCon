@@ -64,6 +64,7 @@ Use this method if not using HomeAssistant, or if you prefer to set it up outsid
      These will be used to discover you A/Cs and get their LAN keys, if there are no config files in the config directory (`/opt/hisense`).
    - Set `esphome_port` (default `6053`) and `esphome_web_port` (default `6052`) if you need to change them, or set `esphome_port` to `0` to disable the ESPHome server entirely.
    - Optionally set `esphome_name` to override the name the virtual ESPHome device is advertised as (defaults to the name of the first A/C).
+   - Optionally set `esphome_advertise_ip` if Home Assistant can't reach this machine's own LAN IP directly (e.g. it runs on a Docker macvlan network and this server on a host/bridge network) - see [ESPHome integration](#esphome-integration) below.
    - Set `port` to the port to be used by the web server.
    - Set `log_level` to your desired verbosity level.
 
@@ -238,6 +239,15 @@ uses to talk to real ESPHome devices.
 To add the device in Home Assistant: **Settings → Devices & Services → Add Integration →
 ESPHome**, then enter the server's IP address and the `esphome_port` (`6053` by default). No
 encryption key is needed - `aioesphomeserver` only supports the plaintext API for now.
+
+If Home Assistant reports the device as unavailable shortly after adding it (even though the
+initial connection worked), the device's Zeroconf/mDNS self-announcement is probably pointing
+Home Assistant back at an address it can't actually reach - most commonly because Home Assistant
+runs on a Docker macvlan network (its own direct LAN IP) while this server runs with
+`network_mode: host`, and containers on a macvlan network generally can't reach the Docker host's
+own IP. Find an address Home Assistant *can* reach this server through (e.g. the gateway IP of
+whatever bridge network Home Assistant is also attached to) and set it as `esphome_advertise_ip`
+in `options.json`, then remove and re-add the integration in Home Assistant.
 
 SmartThings still requires manual setup, using the [groovy file](devicetypes/deiger/hisense-air-conditioner.src/hisense-air-conditioner.groovy):
 you will need it to enable SmartThings integration with the Air Conditioner, through the control server above.

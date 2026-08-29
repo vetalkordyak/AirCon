@@ -167,10 +167,22 @@ class HisenseClimateEntity(ClimateEntity):
 
 
 async def run_esphome_server(devices: List[Device], api_port: int, web_port: int,
-                             name: Optional[str] = None) -> None:
+                             name: Optional[str] = None,
+                             advertise_ip: Optional[str] = None) -> None:
   """Exposes all supported `devices` as climate entities of a single virtual
   ESPHome node, so they show up in Home Assistant through the ESPHome
-  integration instead of MQTT."""
+  integration instead of MQTT.
+
+  `advertise_ip`, if set, overrides the address the device announces over
+  Zeroconf/mDNS. This matters when the machine running this server is
+  reachable from Home Assistant only through a different address than the
+  one its network stack would pick on its own - e.g. Home Assistant running
+  in a container on a macvlan network typically can't reach the Docker
+  host's own LAN IP directly, only e.g. the bridge network gateway IP.
+  Without this override, Home Assistant's ESPHome integration will
+  eventually re-resolve the device to its self-reported (unreachable)
+  address and mark it unavailable, even if it was reachable at setup time.
+  """
   ac_devices = [d for d in devices if isinstance(d, AcDevice)]
   skipped = [d.name for d in devices if d not in ac_devices]
   if skipped:
@@ -188,6 +200,8 @@ async def run_esphome_server(devices: List[Device], api_port: int, web_port: int
       project_version=__version__,
       manufacturer=f'Hisense ({primary.app})',
   )
+  if advertise_ip:
+    esp_device._get_ip_address = lambda: advertise_ip
   entities = [HisenseClimateEntity(device) for device in ac_devices]
   for entity in entities:
     esp_device.add_entity(entity)
