@@ -1,10 +1,12 @@
 # HiSense Air Conditioners
 
-This is a fork of [deiger/AirCon](https://github.com/deiger/AirCon) that replaces the MQTT bridge
-with a native [ESPHome] API server (via [aioesphomeserver]), so the A/C(s) show up in Home
-Assistant's ESPHome integration directly - no broker, push-based state updates, and
-auto-reconnect handled by the same client HA already uses for every other ESPHome device.
-See [ESPHome integration](#esphome-integration) below.
+This is a fork of [deiger/AirCon](https://github.com/deiger/AirCon). The original connects the
+A/C(s) to Home Assistant through an MQTT broker; this fork drops MQTT entirely and instead runs a
+native [ESPHome] API server (via [aioesphomeserver]), so the A/C(s) show up directly in Home
+Assistant's ESPHome integration - the same one it already uses for real ESPHome devices. No
+broker to run, push-based state updates, and reconnect handling that comes for free from the
+ESPHome client Home Assistant already ships. See [ESPHome integration](#esphome-integration)
+below for what that gets you and its current limitations.
 
 This program implements the Ayla Networks LAN API to interact with HiSense WiFi Air Conditioner module, models AEH-W4B1 and AEH-W4E1, as well as Fujitsu FGLair.
 
@@ -44,7 +46,7 @@ The module is installed in A/Cs and humidifiers that are either manufactured or 
    | wwh-us     | Westinghouse?       | |
    | york-us    | YORK Smart          | [![](https://lh3.googleusercontent.com/udf-qe7lXPJ5d7pi96WC8ex20-DuzAvAfyYX1i9B0zyvKjj0TLqoWwZmju-M5y0dQwE=s50-rw)](https://play.google.com/store/apps/details?id=com.accontrol.york.america.hisense) |
 
-## Run the A/C control server as a HomeAssistant add-on.
+## Run the A/C control server as a HomeAssistant add-on
 
 If using [HomeAssistant], this is the preferred method.
 
@@ -80,7 +82,7 @@ Use this method if not using HomeAssistant, or if you prefer to set it up outsid
 1. Profit! Add the device in Home Assistant through **Settings → Devices & Services → Add Integration → ESPHome**,
    using the server's IP address and `esphome_port` (no encryption key needed - see
    [ESPHome integration](#esphome-integration) below).
-   [SmartThings] requires manual setup, using the [groovy file](devicetypes/deiger/hisense-air-conditioner.src/hisense-air-conditioner.groovy), see below.
+   [SmartThings] requires manual setup instead, see [SmartThings integration](#smartthings-integration) below.
 
 ## Run the A/C control server manually
 
@@ -114,6 +116,7 @@ Use this method if the docker setup above does not work for you.
    - `--esphome_port` - Port for the ESPHome native API. Default is 6053. Set to 0 to disable.
    - `--esphome_web_port` - Port for the ESPHome debug web dashboard. Default is 6052.
    - `--esphome_name` - Name to advertise the virtual ESPHome device as. Defaults to the name of the first configured A/C.
+   - `--esphome_advertise_ip` - IP address to advertise the ESPHome device as over Zeroconf/mDNS, if it differs from what this machine would pick on its own. See [ESPHome integration](#esphome-integration) below.
    - `--log_level` - The minimal log level to send to syslog. Default is WARNING.
    - `--local_ip` - The local IP address to report to the AC unit(s) as target server. Useful in case the server running this application has multiple IP addresses (e.g. in multiple VLANs), since some/most(?) AC units will refuse to report to an IP address outside of their subnet.
 1. Access e.g. using curl:
@@ -166,10 +169,58 @@ Assuming your username is "pi"
 1. [HomeAssistant] should now be able to find the A/C(s) through its ESPHome integration, see
    [ESPHome integration](#esphome-integration) below.
 
+## ESPHome integration
+
+Each configured A/C shows up in Home Assistant as a device with the following entities:
+
+| Entity                  | Type            | Hisense property                                    | Notes                                                                                          |
+|--------------------------|-----------------|-------------------------------------------------------|--------------------------------------------------------------------------------------------------|
+| *(the A/C's own name)*   | `climate`       | `t_power`, `t_work_mode`, `t_temp`, `f_temp_in`, `t_fan_speed`, `t_fan_power`, `t_fan_leftright` | HVAC modes off/heat/cool/dry/fan_only/auto; fan speed is a *custom fan mode* using the A/C's own names (`auto`/`lower`/`low`/`medium`/`high`/`higher`) instead of being lossily mapped onto ESPHome's fixed fan enum; swing mode (off/vertical/horizontal/both) drives the vertical and horizontal air flow flaps together |
+| … Backlight              | `switch`        | `t_backlight`                                        | display on/off |
+| … Eco Mode               | `switch`        | `t_eco`                                              | |
+| … Quiet Mode             | `switch`        | `t_fan_mute`                                         | |
+| … Filter Clean Required  | `binary_sensor` | `f_filterclean`                                      | |
+| … Humidity               | `sensor`        | `f_humidity`                                         | some A/C models never report a real value here (always 0) - that's the hardware, not this integration |
+| … Voltage                | `sensor`        | `f_voltage`                                          | same caveat as Humidity |
+
+Not exposed yet: sleep mode (`t_sleep`), the fast/eight-heat modes (`t_temp_heatcold`, `t_temp_eight`), and the raw fault-code flags (`f_e_*`). Use the [HTTP API](#run-the-a-c-control-server-manually) directly for those in the meantime, or open an issue/PR.
+
+To add the device in Home Assistant: **Settings → Devices & Services → Add Integration →
+ESPHome**, then enter the server's IP address and the `esphome_port` (`6053` by default). No
+encryption key is needed - `aioesphomeserver` only supports the plaintext API for now.
+
+`aioesphomeserver` is alpha-quality, and its connection handling has been observed to wedge after
+a burst of simultaneous reconnects (e.g. right after Home Assistant itself restarts and every
+ESPHome device it knows about tries to reconnect at once) - the process stays up and the port
+stays open, but new clients never get past the initial handshake. The `docker-compose.yaml` here
+includes a Docker `HEALTHCHECK` that actually performs that handshake, plus an `autoheal` sidecar
+that restarts `hisense_ac` automatically when it fails (Docker's own restart policy only reacts to
+the process exiting, not to a failed healthcheck). This has been enough in practice to recover
+within about 30 seconds. Note that `autoheal` needs access to the Docker socket to do this, which
+in general grants a container fairly broad control over the host's other containers - acceptable
+for a home setup, worth knowing about if this runs anywhere more sensitive.
+
+If Home Assistant reports the device as unavailable shortly after adding it (even though the
+initial connection worked), the device's Zeroconf/mDNS self-announcement is probably pointing
+Home Assistant back at an address it can't actually reach - most commonly because Home Assistant
+runs on a Docker macvlan network (its own direct LAN IP) while this server runs with
+`network_mode: host`, and containers on a macvlan network generally can't reach the Docker host's
+own IP. Find an address Home Assistant *can* reach this server through (e.g. the gateway IP of
+whatever bridge network Home Assistant is also attached to) and set it as `esphome_advertise_ip`
+in `options.json`, then remove and re-add the integration in Home Assistant.
+
+## SmartThings integration
+
+You will need a groovy script to enable SmartThings integration with the Air Conditioner, through
+the control server above. It currently implements the main functionality (turn on/off, AC mode,
+fan speed, dimmer etc.).
+
+The groovy file is available [here](devicetypes/deiger/hisense-air-conditioner.src/hisense-air-conditioner.groovy), for download and installation through the [Groovy IDE](https://graph.api.smartthings.com). As I'm continuously improving this script, it would be more efficient to use the IDE's github integration, in order to stay up-to-date.
+
 ## Available Properties
 
-Listed here are the properties available through the API for standard A/Cs
-(FGLair and humidifers have different properties):
+Listed here are the properties available through the [HTTP API](#run-the-a-c-control-server-manually)
+for standard A/Cs (FGLair and humidifers have different properties):
 
 | Property         | Read Only | Values                                 | Comment                                                                  |
 |------------------|-----------|----------------------------------------|--------------------------------------------------------------------------|
@@ -217,54 +268,6 @@ Listed here are the properties available through the API for standard A/Cs
 | t_temp_eight     |           | OFF, ON                                | Eight heat mode                                                          |
 | t_temp_heatcold  |           | OFF, ON                                | Fast cool heat                                                           |
 | t_work_mode      |           | FAN, HEAT, COOL, DRY, AUTO             | Work mode                                                                |
-
-## ESPHome integration
-
-Instead of an MQTT bridge, the server exposes each A/C as a `climate` entity over a native
-[ESPHome] API server (implemented with [aioesphomeserver]), the same protocol Home Assistant
-uses to talk to real ESPHome devices.
-
-- **Power / mode** (`t_power`, `t_work_mode`) maps onto the standard `off` / `fan_only` / `heat`
-  / `cool` / `dry` / `auto` HVAC modes.
-- **Target temperature** (`t_temp`) and **current temperature** (`f_temp_in`) map onto the
-  standard climate temperature fields (converted to Celsius for Fahrenheit-configured units,
-  since ESPHome's protocol is always Celsius internally).
-- **Fan speed** (`t_fan_speed`) is exposed as a *custom fan mode* with the A/C's own speed names
-  (`auto`, `lower`, `low`, `medium`, `high`, `higher`), rather than being lossily mapped onto
-  ESPHome's fixed fan mode enum.
-- Swing, humidity, and the other more exotic properties (eco mode, sleep mode, etc.) aren't
-  exposed yet - use the [HTTP API](#run-the-ac-control-server-manually) directly for those in
-  the meantime, or open an issue/PR.
-
-To add the device in Home Assistant: **Settings → Devices & Services → Add Integration →
-ESPHome**, then enter the server's IP address and the `esphome_port` (`6053` by default). No
-encryption key is needed - `aioesphomeserver` only supports the plaintext API for now.
-
-`aioesphomeserver` is alpha-quality, and its connection handling has been observed to wedge after
-a burst of simultaneous reconnects (e.g. right after Home Assistant itself restarts and every
-ESPHome device it knows about tries to reconnect at once) - the process stays up and the port
-stays open, but new clients never get past the initial handshake. The `docker-compose.yaml` here
-includes a Docker `HEALTHCHECK` that actually performs that handshake, plus an `autoheal` sidecar
-that restarts `hisense_ac` automatically when it fails (Docker's own restart policy only reacts to
-the process exiting, not to a failed healthcheck). This has been enough in practice to recover
-within about 30 seconds. Note that `autoheal` needs access to the Docker socket to do this, which
-in general grants a container fairly broad control over the host's other containers - acceptable
-for a home setup, worth knowing about if this runs anywhere more sensitive.
-
-If Home Assistant reports the device as unavailable shortly after adding it (even though the
-initial connection worked), the device's Zeroconf/mDNS self-announcement is probably pointing
-Home Assistant back at an address it can't actually reach - most commonly because Home Assistant
-runs on a Docker macvlan network (its own direct LAN IP) while this server runs with
-`network_mode: host`, and containers on a macvlan network generally can't reach the Docker host's
-own IP. Find an address Home Assistant *can* reach this server through (e.g. the gateway IP of
-whatever bridge network Home Assistant is also attached to) and set it as `esphome_advertise_ip`
-in `options.json`, then remove and re-add the integration in Home Assistant.
-
-SmartThings still requires manual setup, using the [groovy file](devicetypes/deiger/hisense-air-conditioner.src/hisense-air-conditioner.groovy):
-you will need it to enable SmartThings integration with the Air Conditioner, through the control server above.
-It currently implements the main functionality (turn on/off, AC mode, fan speed, dimmer etc.).
-
-The groovy file is available [here](devicetypes/deiger/hisense-air-conditioner.src/hisense-air-conditioner.groovy), for download and installation through the [Groovy IDE](https://graph.api.smartthings.com). As I'm continuously improving this script, it would be more efficient to use the IDE's github integration, in order to stay up-to-date.
 
 ## Code Contributions
 Pull requests are always welcome.
