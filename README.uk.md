@@ -101,8 +101,6 @@ ESPHome-пристроїв. Без брокера, з push-оновленням�
 1. Готово! Додайте пристрій у Home Assistant через **Налаштування → Пристрої та служби → Додати
    інтеграцію → ESPHome**, вказавши IP-адресу сервера та `esphome_port` (докладніше — у розділі
    [Інтеграція з ESPHome](#інтеграція-з-esphome) нижче).
-   Для [SmartThings] потрібне окреме ручне налаштування, див.
-   [Інтеграція з SmartThings](#інтеграція-з-smartthings) нижче.
 
 ## Запуск сервера керування кондиціонером вручну
 
@@ -241,14 +239,6 @@ Assistant працює в Docker-мережі macvlan (має власну LAN-�
 як `esphome_advertise_ip` в `options.json`, після чого видаліть і додайте інтеграцію в Home
 Assistant заново.
 
-## Інтеграція з SmartThings
-
-Для інтеграції SmartThings з кондиціонером через описаний вище сервер керування знадобиться
-groovy-скрипт. Наразі він реалізує основну функціональність (увімкнення/вимкнення, режим
-кондиціонера, швидкість вентилятора, димер тощо).
-
-Groovy-файл доступний [тут](devicetypes/deiger/hisense-air-conditioner.src/hisense-air-conditioner.groovy) для завантаження та встановлення через [Groovy IDE](https://graph.api.smartthings.com). Оскільки скрипт постійно вдосконалюється, ефективніше користуватись github-інтеграцією IDE, щоб мати актуальну версію.
-
 ## Доступні властивості
 
 Нижче наведено властивості, доступні через
@@ -313,7 +303,6 @@ Pull request'и завжди вітаються.
 [Home Assistant]: https://www.home-assistant.io/
 [ESPHome]: https://esphome.io/
 [aioesphomeserver]: https://github.com/peterkeen/aioesphomeserver
-[SmartThings]: https://www.smartthings.com/
 [YAPF]: https://github.com/google/yapf
 
 Read this document in English: [README.md](README.md).

@@ -82,7 +82,6 @@ Use this method if not using HomeAssistant, or if you prefer to set it up outsid
 1. Profit! Add the device in Home Assistant through **Settings → Devices & Services → Add Integration → ESPHome**,
    using the server's IP address and `esphome_port` (no encryption key needed - see
    [ESPHome integration](#esphome-integration) below).
-   [SmartThings] requires manual setup instead, see [SmartThings integration](#smartthings-integration) below.
 
 ## Run the A/C control server manually
 
@@ -209,14 +208,6 @@ own IP. Find an address Home Assistant *can* reach this server through (e.g. the
 whatever bridge network Home Assistant is also attached to) and set it as `esphome_advertise_ip`
 in `options.json`, then remove and re-add the integration in Home Assistant.
 
-## SmartThings integration
-
-You will need a groovy script to enable SmartThings integration with the Air Conditioner, through
-the control server above. It currently implements the main functionality (turn on/off, AC mode,
-fan speed, dimmer etc.).
-
-The groovy file is available [here](devicetypes/deiger/hisense-air-conditioner.src/hisense-air-conditioner.groovy), for download and installation through the [Groovy IDE](https://graph.api.smartthings.com). As I'm continuously improving this script, it would be more efficient to use the IDE's github integration, in order to stay up-to-date.
-
 ## Available Properties
 
 Listed here are the properties available through the [HTTP API](#run-the-a-c-control-server-manually)
@@ -278,7 +269,6 @@ Single quotes are used throughout the code-base. Unfortunately YAPF still doesn'
 [HomeAssistant]: https://www.home-assistant.io/
 [ESPHome]: https://esphome.io/
 [aioesphomeserver]: https://github.com/peterkeen/aioesphomeserver
-[SmartThings]: https://www.smartthings.com/
 [YAPF]: https://github.com/google/yapf
 
 Читати цей документ українською: [README.uk.md](README.uk.md).
