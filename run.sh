@@ -4,9 +4,9 @@ set -e
 PORT=$(jq -r '.port // 8888' $OPTIONS_FILE)
 TYPE=$(jq -r '.type // "ac"' $OPTIONS_FILE)
 LOG_LEVEL=$(jq -r '.log_level | ascii_upcase // "WARNING"' $OPTIONS_FILE)
-MQTT_HOST=$(jq -r '.mqtt_host // ""' $OPTIONS_FILE)
-MQTT_PORT=$(jq -r '.mqtt_port // 1883' $OPTIONS_FILE)
-MQTT_USER=$(jq -r 'if (.mqtt_user and .mqtt_pass) then (.mqtt_user + ":" + .mqtt_pass) else "" end' $OPTIONS_FILE)
+ESPHOME_PORT=$(jq -r '.esphome_port // 6053' $OPTIONS_FILE)
+ESPHOME_WEB_PORT=$(jq -r '.esphome_web_port // 6052' $OPTIONS_FILE)
+ESPHOME_NAME=$(jq -r '.esphome_name // ""' $OPTIONS_FILE)
 APPS=$(jq -r '.app | length // 0' $OPTIONS_FILE)
 LOCAL_IP=$(jq -r 'if (.local_ip) then (.local_ip) else "" end' $OPTIONS_FILE)
 
@@ -25,4 +25,4 @@ configs=
 for i in $(find $CONFIG_DIR -maxdepth 1 -type f -name "config_*.json" -exec basename {} \;)
   do configs="$configs --config $CONFIG_DIR/$i --type $TYPE"
 done
-python -m aircon --log_level $LOG_LEVEL run --port $PORT --mqtt_host "$MQTT_HOST" --mqtt_port $MQTT_PORT --mqtt_user "$MQTT_USER" --local_ip "$LOCAL_IP" $configs
+python -m aircon --log_level $LOG_LEVEL run --port $PORT --esphome_port $ESPHOME_PORT --esphome_web_port $ESPHOME_WEB_PORT --esphome_name "$ESPHOME_NAME" --local_ip "$LOCAL_IP" $configs

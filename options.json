@@ -7,10 +7,8 @@
     }
   ],
   "log_level": "INFO",
-  "mqtt_host": "core-mosquitto",
-  "mqtt_port": 1883,
-  "mqtt_user": "<mqtt username>",
-  "mqtt_pass": "<mqtt password>",
+  "esphome_port": 6053,
+  "esphome_web_port": 6052,
   "port": 8888,
   "local_ip": "<ip address of AirCon server>"
 }
