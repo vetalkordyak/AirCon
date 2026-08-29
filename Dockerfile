@@ -1,4 +1,4 @@
-FROM python:3.10
+FROM python:3.14
 
 ARG BUILD_VERSION=latest
 LABEL io.hass.version="$BUILD_VERSION" io.hass.type="addon" io.hass.arch="armhf|armv7|aarch64|amd64|i386"
@@ -6,8 +6,8 @@ LABEL io.hass.version="$BUILD_VERSION" io.hass.type="addon" io.hass.arch="armhf|
 COPY . /app
 WORKDIR /app
 
-RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-install-recommends jq
-RUN python setup.py install
+RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-install-recommends jq git
+RUN pip install --no-cache-dir .
 
 ENV PLATFORM=docker
 

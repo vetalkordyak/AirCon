@@ -10,7 +10,6 @@ import json
 import logging
 import logging.handlers
 import os
-import paho.mqtt.client as mqtt
 from retry import retry
 import signal
 import socket
@@ -30,7 +29,7 @@ from .config import Config
 from .error import Error
 from .aircon import Device
 from .discovery import perform_discovery
-from .mqtt_client import MqttClient
+from .esphome_server import run_esphome_server
 from .notifier import Notifier
 from .query_handlers import QueryHandlers
 
@@ -76,15 +75,21 @@ def ParseArguments() -> argparse.Namespace:
                             choices={'ac', 'fgl', 'fgl_b', 'humidifier'},
                             help='Device type. Deprecated, now decided based on OEM model.')
 
-  group_mqtt = parser_run.add_argument_group('MQTT', 'Settings related to the MQTT')
-  group_mqtt.add_argument('--mqtt_host', default=None, help='MQTT broker hostname or IP address.')
-  group_mqtt.add_argument('--mqtt_port', type=int, default=1883, help='MQTT broker port.')
-  group_mqtt.add_argument('--mqtt_client_id', default=None, help='MQTT client ID.')
-  group_mqtt.add_argument('--mqtt_user', default=None, help='<user:password> for the MQTT channel.')
-  group_mqtt.add_argument('--mqtt_topic', default='hisense_ac', help='MQTT topic.')
-  group_mqtt.add_argument('--mqtt_discovery_prefix',
-                          default='homeassistant',
-                          help='MQTT discovery prefix for HomeAssistant.')
+  group_esphome = parser_run.add_argument_group(
+      'ESPHome', 'Settings for exposing the A/C(s) as an ESPHome native API device, '
+      'for auto-discovery by HomeAssistant\'s ESPHome integration.')
+  group_esphome.add_argument('--esphome_port',
+                             type=int,
+                             default=6053,
+                             help='Port for the ESPHome native API. Set to 0 to disable.')
+  group_esphome.add_argument('--esphome_web_port',
+                             type=int,
+                             default=6052,
+                             help='Port for the ESPHome debug web dashboard.')
+  group_esphome.add_argument('--esphome_name',
+                             default=None,
+                             help='Name to advertise the virtual ESPHome device as. '
+                             'Defaults to the name of the first configured A/C.')
 
   parser_discovery = subparsers.add_parser('discovery', help='Runs the device discovery')
   parser_discovery.add_argument('app', choices=set(SECRET_MAP), help='The app used for the login.')
@@ -157,13 +162,6 @@ async def setup_and_run_http_server(parsed_args, devices: [Device]):
   await site.start()
 
 
-async def mqtt_loop(mqtt_client: MqttClient):
-  _MQTT_LOOP_TIMEOUT = 1
-  while True:
-    mqtt_client.loop()
-    await asyncio.sleep(_MQTT_LOOP_TIMEOUT)
-
-
 async def run(parsed_args):
   notifier = Notifier(parsed_args.port, parsed_args.local_ip)
   devices = []
@@ -174,88 +172,14 @@ async def run(parsed_args):
     notifier.register_device(device)
     devices.append(device)
 
-  mqtt_client = None
-  if parsed_args.mqtt_host:
-    mqtt_topics = {
-        'pub':
-            '/'.join((parsed_args.mqtt_topic, '{}', '{}', 'status')),
-        'sub':
-            '/'.join((parsed_args.mqtt_topic, '{}', '{}', 'command')),
-        'lwt':
-            '/'.join((parsed_args.mqtt_topic, 'LWT')),
-        'discovery':
-            '/'.join((parsed_args.mqtt_discovery_prefix, 'climate', '{}', 'hvac', 'config'))
-    }
-    mqtt_client = MqttClient(parsed_args.mqtt_client_id, mqtt_topics, devices)
-    if parsed_args.mqtt_user:
-      mqtt_client.username_pw_set(*parsed_args.mqtt_user.split(':', 1))
-    mqtt_client.will_set(mqtt_topics['lwt'], payload='offline', retain=True)
-    mqtt_client.connect(parsed_args.mqtt_host, parsed_args.mqtt_port)
-    mqtt_client.publish(mqtt_topics['lwt'], payload='online', retain=True)
-    for device in devices:
-      config = {
-          'unique_id': device.mac_address,
-          'device': {
-              'identifiers': [f'hisense_ac_{device.mac_address}'],
-              'manufacturer': f'Hisense ({device.app})',
-              'model': device.model,
-              'name': device.name,
-              'sw_version': device.sw_version
-          },
-          'availability': [
-              {
-                  'topic': mqtt_topics['lwt']
-              },
-              {
-                  'topic': mqtt_topics['pub'].format(device.mac_address, 'available')
-              },
-          ],
-          'precision': 1.0,
-          'temperature_unit': 'F' if device.is_fahrenheit else 'C'
-      }
-      topics = device.topics
-      if 'env_temp' in topics:
-        config['current_temperature_topic'] = mqtt_topics['pub'].format(
-            device.mac_address, topics['env_temp'])
-      if 'fan_speed' in topics:
-        config['fan_mode_command_topic'] = mqtt_topics['sub'].format(device.mac_address,
-                                                                     topics['fan_speed'])
-        config['fan_mode_state_topic'] = mqtt_topics['pub'].format(device.mac_address,
-                                                                   topics['fan_speed'])
-        config['fan_modes'] = device.fan_modes
-      if 'work_mode' in topics:
-        config['mode_command_topic'] = mqtt_topics['sub'].format(device.mac_address,
-                                                                 topics['work_mode'])
-        config['mode_state_topic'] = mqtt_topics['pub'].format(device.mac_address,
-                                                               topics['work_mode'])
-        config['modes'] = device.work_modes
-      if 'swing_mode' in topics:
-        config['swing_mode_command_topic'] = mqtt_topics['sub'].format(
-            device.mac_address, topics['swing_mode'])
-        config['swing_mode_state_topic'] = mqtt_topics['pub'].format(device.mac_address,
-                                                                     topics['swing_mode'])
-        config['swing_modes'] = ['on', 'off']
-      if 'swing_horizontal_mode' in topics:
-        config['swing_horizontal_mode_command_topic'] = mqtt_topics['sub'].format(
-            device.mac_address, topics['swing_horizontal_mode'])
-        config['swing_horizontal_mode_state_topic'] = mqtt_topics['pub'].format(
-            device.mac_address, topics['swing_horizontal_mode'])
-        config['swing_horizontal_modes'] = ['on', 'off']
-      if 'temp' in topics:
-        config['temperature_command_topic'] = mqtt_topics['sub'].format(
-            device.mac_address, topics['temp'])
-        config['temperature_state_topic'] = mqtt_topics['pub'].format(device.mac_address,
-                                                                      topics['temp'])
-        config['max_temp'] = '86' if device.is_fahrenheit else '30'
-        config['min_temp'] = '61' if device.is_fahrenheit else '16'
-      mqtt_client.publish(mqtt_topics['discovery'].format(device.mac_address),
-                          payload=json.dumps(config),
-                          retain=True)
-      device.add_property_change_listener(mqtt_client.mqtt_publish_update)
+  tasks = [setup_and_run_http_server(parsed_args, devices), query_status_worker(devices)]
+  if parsed_args.esphome_port:
+    tasks.append(
+        run_esphome_server(devices, parsed_args.esphome_port, parsed_args.esphome_web_port,
+                           parsed_args.esphome_name))
 
   async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(connect=5.0)) as session:
-    await asyncio.gather(mqtt_loop(mqtt_client), setup_and_run_http_server(parsed_args, devices),
-                         query_status_worker(devices), notifier.start(session))
+    await asyncio.gather(*tasks, notifier.start(session))
 
 
 def _escape_name(name: str):

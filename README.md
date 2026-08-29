@@ -1,5 +1,11 @@
 # HiSense Air Conditioners
 
+This is a fork of [deiger/AirCon](https://github.com/deiger/AirCon) that replaces the MQTT bridge
+with a native [ESPHome] API server (via [aioesphomeserver]), so the A/C(s) show up in Home
+Assistant's ESPHome integration directly - no broker, push-based state updates, and
+auto-reconnect handled by the same client HA already uses for every other ESPHome device.
+See [ESPHome integration](#esphome-integration) below.
+
 This program implements the Ayla Networks LAN API to interact with HiSense WiFi Air Conditioner module, models AEH-W4B1 and AEH-W4E1, as well as Fujitsu FGLair.
 
 As discussed [here](../../issues/1), the program doesn't seem to fit the AEH-W4A1 module, which relies on entirely different protocol (implemented by the apps [Hi-Smart Life](https://play.google.com/store/apps/details?id=com.qd.android.livehome), [AirConnect](https://play.google.com/store/apps/details?id=com.oem.android.airconnect), [Smart Cool](https://play.google.com/store/apps/details?id=com.oem.android.livehome), [AC WIFI](https://play.google.com/store/apps/details?id=com.oem.android.ecold) and [טורנדו WiFi](https://play.google.com/store/apps/details?id=com.oem.android.tornadowifi)). Please let me know if you have a different experience, or tried it with other modules.
@@ -11,7 +17,7 @@ The module is installed in A/Cs and humidifiers that are either manufactured or 
 ## Prerequisites
 
 1. Air Conditioner with HiSense AEH-W4B1 or AEH-W4E1 installed, or a Fujitsu FGLair.
-1. Have Python 3.10 or above installed. If using Raspberry Pi, either upgrade to Raspbian Buster, or manually install it in Raspbian Stretch.
+1. Have Python 3.14 or above installed (required by the ESPHome server dependency). If using Raspberry Pi, use a recent Raspbian/Raspberry Pi OS release that ships it, or use the Docker method below instead.
 1. Configure the A/Cs with the dedicated app. Links to each app are available in the table below. Log into the app, associate each A/C and connect it to the network, as described in the app documentation.
 1. Once everything has been configured, the A/Cs can be blocked from connecting to the internet, as it will no longer be needed. Set them static IP addresses in the router, and write them down.
    * Note: _To avoid the need for manual changes later, make sure the app is aware of the new IP addresses before disconnecting the A/Cs from the internet._
@@ -44,7 +50,7 @@ If using [HomeAssistant], this is the preferred method.
 
 1. In the HomeAssistant UI, enter **Supervisor → Add-on Store**.
 1. Click **⋮ menu → Repositories**.
-1. Add `https://github.com/deiger/AirCon` to the list.
+1. Add `https://github.com/vetalkordyak/AirCon` to the list.
 1. Choose **HiSense Air Conditioner** and install it.
 1. Update the configuration as detailed within the add-on.
 1. Start the add-on. Do not forget to enable **Start on boot** and **Watchdog**.
@@ -56,9 +62,8 @@ Use this method if not using HomeAssistant, or if you prefer to set it up outsid
 1. Download the [`docker-compose.yaml`](docker-compose.yaml) and [`options.json`](options.json). Update all the relevant fields in `options.json`:
    - For every app (multiple apps are supported), set `username` and `password` to your app login credentials, and `code` to the app code from the list above.
      These will be used to discover you A/Cs and get their LAN keys, if there are no config files in the config directory (`/opt/hisense`).
-   - Set `mqtt_host` to the [MQTT] broker server, use `localhost` if running on the same host.
-     Leave blank if not using [MQTT].
-   - Set `mqtt_user` and `mqtt_pass` to the MQTT credentials. Leave null (or drop) if no authentication is used.
+   - Set `esphome_port` (default `6053`) and `esphome_web_port` (default `6052`) if you need to change them, or set `esphome_port` to `0` to disable the ESPHome server entirely.
+   - Optionally set `esphome_name` to override the name the virtual ESPHome device is advertised as (defaults to the name of the first A/C).
    - Set `port` to the port to be used by the web server.
    - Set `log_level` to your desired verbosity level.
 
@@ -71,9 +76,9 @@ Use this method if not using HomeAssistant, or if you prefer to set it up outsid
    journalctl CONTAINER_NAME=hisense_ac
    ```
 
-1. Profit!  
-   The A/Cs should now be auto-discovered by [HomeAssistant] or [openHAB]
-   (using the [HomeAssistant MQTT Components Binding](https://www.openhab.org/addons/bindings/mqtt.homeassistant/)).
+1. Profit! Add the device in Home Assistant through **Settings → Devices & Services → Add Integration → ESPHome**,
+   using the server's IP address and `esphome_port` (no encryption key needed - see
+   [ESPHome integration](#esphome-integration) below).
    [SmartThings] requires manual setup, using the [groovy file](devicetypes/deiger/hisense-air-conditioner.src/hisense-air-conditioner.groovy), see below.
 
 ## Run the A/C control server manually
@@ -82,14 +87,14 @@ Use this method if the docker setup above does not work for you.
 
 1. Download and install aircon module:
    ```bash
-   python3.10 setup.py install
+   python3.14 -m pip install .
    ```
 
 1. Run discovery command to fetch the LAN keys that will allow connecting to the A/C. Pass it your login credentials, as well as the code for your app from the list below:
 
    For example:
    ```bash
-   python3.10 -m aircon discovery tornado-us foo@example.com my_pass
+   python3.14 -m aircon discovery tornado-us foo@example.com my_pass
    ```
    The CLI will generate a config file for each A/C, that needs to be passed to the A/C
    control server below. You can select the A/C that the config is generated for by
@@ -100,17 +105,14 @@ Use this method if the docker setup above does not work for you.
 
 1. Test out that you can run the server, e.g.:
    ```bash
-   python3.10 -m aircon run --port 8888 --config config.json --mqtt_host localhost
+   python3.14 -m aircon run --port 8888 --config config.json
    ```
    Parameters:
    - `--port` or `-p` - Port for the web server.
    - `--config` - The config file with the credentials to connect to the A/C.
-   - `--mqtt_host` - The MQTT broker hostname or IP address. Must be set to enable MQTT.
-   - `--mqtt_port` - The MQTT broker port. Default is 1883.
-   - `--mqtt_client_id` - The MQTT client ID. If not set, a random client ID will be generated.
-   - `--mqtt_user` - &lt;user:password&gt; for the MQTT channel. If not set, no authentication is used.
-   - `--mqtt_topic` - The MQTT root topic. Default is &quot;hisense_ac&quot;. The server will listen on topics
-     &lt;{mqtt_topic}/{property_name}/command&gt; and publish to &lt;{mqtt_topic}/{property_name}/status&gt;.
+   - `--esphome_port` - Port for the ESPHome native API. Default is 6053. Set to 0 to disable.
+   - `--esphome_web_port` - Port for the ESPHome debug web dashboard. Default is 6052.
+   - `--esphome_name` - Name to advertise the virtual ESPHome device as. Defaults to the name of the first configured A/C.
    - `--log_level` - The minimal log level to send to syslog. Default is WARNING.
    - `--local_ip` - The local IP address to report to the AC unit(s) as target server. Useful in case the server running this application has multiple IP addresses (e.g. in multiple VLANs), since some/most(?) AC units will refuse to report to an IP address outside of their subnet.
 1. Access e.g. using curl:
@@ -120,8 +122,9 @@ Use this method if the docker setup above does not work for you.
    ```
 
 ### Multiple Air Conditioners
-In order to use with multiple Air Conditioners, simply add multiple --config params.
-MQTT topic will contain your topic defined by flag --mqtt_topic (hisense_ac by default) and device MAC address (for uniqueness).
+In order to use with multiple Air Conditioners, simply add multiple --config params. Each A/C is
+exposed as its own climate entity (named after the A/C's name in the app) under the single
+virtual ESPHome device.
 
 ### Run as a service
 Assuming your username is "pi"
@@ -140,7 +143,7 @@ Assuming your username is "pi"
    After=network.target
 
    [Service]
-   ExecStart=/usr/bin/python3.10 -m aircon run --port 8888 --config config.json --mqtt_host localhost
+   ExecStart=/usr/bin/python3.14 -m aircon run --port 8888 --config config.json
    WorkingDirectory=/opt/hisense
    StandardOutput=inherit
    StandardError=inherit
@@ -159,8 +162,8 @@ Assuming your username is "pi"
    sudo systemctl enable hisense.service
    sudo systemctl start hisense.service
    ```
-1. If you use [MQTT](http://en.wikipedia.org/wiki/Mqtt) for [HomeAssistant] or
-   [openHAB](https://www.openhab.org/), the broker should now provide the updated status of the A/C, and accepts commands.
+1. [HomeAssistant] should now be able to find the A/C(s) through its ESPHome integration, see
+   [ESPHome integration](#esphome-integration) below.
 
 ## Available Properties
 
@@ -214,13 +217,33 @@ Listed here are the properties available through the API for standard A/Cs
 | t_temp_heatcold  |           | OFF, ON                                | Fast cool heat                                                           |
 | t_work_mode      |           | FAN, HEAT, COOL, DRY, AUTO             | Work mode                                                                |
 
-## SmartThings and HomeAssistant support
-You will need a groovy script to enable SmartThings integration with the Air Conditioner, through the control server above.
+## ESPHome integration
+
+Instead of an MQTT bridge, the server exposes each A/C as a `climate` entity over a native
+[ESPHome] API server (implemented with [aioesphomeserver]), the same protocol Home Assistant
+uses to talk to real ESPHome devices.
+
+- **Power / mode** (`t_power`, `t_work_mode`) maps onto the standard `off` / `fan_only` / `heat`
+  / `cool` / `dry` / `auto` HVAC modes.
+- **Target temperature** (`t_temp`) and **current temperature** (`f_temp_in`) map onto the
+  standard climate temperature fields (converted to Celsius for Fahrenheit-configured units,
+  since ESPHome's protocol is always Celsius internally).
+- **Fan speed** (`t_fan_speed`) is exposed as a *custom fan mode* with the A/C's own speed names
+  (`auto`, `lower`, `low`, `medium`, `high`, `higher`), rather than being lossily mapped onto
+  ESPHome's fixed fan mode enum.
+- Swing, humidity, and the other more exotic properties (eco mode, sleep mode, etc.) aren't
+  exposed yet - use the [HTTP API](#run-the-ac-control-server-manually) directly for those in
+  the meantime, or open an issue/PR.
+
+To add the device in Home Assistant: **Settings → Devices & Services → Add Integration →
+ESPHome**, then enter the server's IP address and the `esphome_port` (`6053` by default). No
+encryption key is needed - `aioesphomeserver` only supports the plaintext API for now.
+
+SmartThings still requires manual setup, using the [groovy file](devicetypes/deiger/hisense-air-conditioner.src/hisense-air-conditioner.groovy):
+you will need it to enable SmartThings integration with the Air Conditioner, through the control server above.
 It currently implements the main functionality (turn on/off, AC mode, fan speed, dimmer etc.).
 
 The groovy file is available [here](devicetypes/deiger/hisense-air-conditioner.src/hisense-air-conditioner.groovy), for download and installation through the [Groovy IDE](https://graph.api.smartthings.com). As I'm continuously improving this script, it would be more efficient to use the IDE's github integration, in order to stay up-to-date.
-
-HomeAsststant is now fully supported through [MQTT Discovery]. Properly configured devices are auto-configured and populated in the Lovelace dashboard.
 
 ## Code Contributions
 Pull requests are always welcome.
@@ -229,8 +252,9 @@ Please use [YAPF] with the style config defined here to style your code.
 Single quotes are used throughout the code-base. Unfortunately YAPF still doesn't support mandating this (support exists in the [fixers branch](https://github.com/google/yapf/tree/fixers)), so please be mindful.
 
 [HomeAssistant]: https://www.home-assistant.io/
-[MQTT Discovery]: https://www.home-assistant.io/docs/mqtt/discovery/
-[openHAB]: https://www.openhab.org/
+[ESPHome]: https://esphome.io/
+[aioesphomeserver]: https://github.com/peterkeen/aioesphomeserver
 [SmartThings]: https://www.smartthings.com/
-[MQTT]: http://en.wikipedia.org/wiki/Mqtt
 [YAPF]: https://github.com/google/yapf
+
+Читати цей документ українською: [README.uk.md](README.uk.md).
