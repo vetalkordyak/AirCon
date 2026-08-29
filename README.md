@@ -240,6 +240,17 @@ To add the device in Home Assistant: **Settings → Devices & Services → Add I
 ESPHome**, then enter the server's IP address and the `esphome_port` (`6053` by default). No
 encryption key is needed - `aioesphomeserver` only supports the plaintext API for now.
 
+`aioesphomeserver` is alpha-quality, and its connection handling has been observed to wedge after
+a burst of simultaneous reconnects (e.g. right after Home Assistant itself restarts and every
+ESPHome device it knows about tries to reconnect at once) - the process stays up and the port
+stays open, but new clients never get past the initial handshake. The `docker-compose.yaml` here
+includes a Docker `HEALTHCHECK` that actually performs that handshake, plus an `autoheal` sidecar
+that restarts `hisense_ac` automatically when it fails (Docker's own restart policy only reacts to
+the process exiting, not to a failed healthcheck). This has been enough in practice to recover
+within about 30 seconds. Note that `autoheal` needs access to the Docker socket to do this, which
+in general grants a container fairly broad control over the host's other containers - acceptable
+for a home setup, worth knowing about if this runs anywhere more sensitive.
+
 If Home Assistant reports the device as unavailable shortly after adding it (even though the
 initial connection worked), the device's Zeroconf/mDNS self-announcement is probably pointing
 Home Assistant back at an address it can't actually reach - most commonly because Home Assistant

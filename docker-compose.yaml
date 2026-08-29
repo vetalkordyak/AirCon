@@ -13,11 +13,23 @@ services:
     build:
       context: .
     container_name: hisense_ac
-    healthcheck:
-      disable: true
+    labels:
+      - autoheal=true
     environment:
       - CONFIG_DIR=/config
       - OPTIONS_FILE=/config/options.json
     network_mode: host
     volumes:
       - /opt/hisense:/config
+
+  # Restarts hisense_ac if its HEALTHCHECK (see Dockerfile) reports
+  # unhealthy - Docker's own restart policy only reacts to the process
+  # exiting, not to a failed healthcheck. See "ESPHome integration" in
+  # README.md for why this is needed.
+  autoheal:
+    image: willfarrell/autoheal
+    restart: unless-stopped
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=autoheal
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
