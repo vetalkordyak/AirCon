@@ -19,8 +19,8 @@ setuptools.setup(
     license='GPL 3.0',
     packages=setuptools.find_packages(),
     install_requires=[
-        'aiohttp==3.14.3', 'dataclasses_json', 'pycryptodome', 'paho-mqtt==1.6.1', 'tenacity',
-        'get-mac', 'retry'
+        'aiohttp==3.14.3', 'dataclasses_json', 'pycryptodome', 'tenacity', 'get-mac', 'retry',
+        'aioesphomeserver @ git+https://github.com/peterkeen/aioesphomeserver.git@main'
     ],
     classifiers=[
         'Programming Language :: Python :: 3',
