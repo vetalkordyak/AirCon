@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import List, Optional
 
-from aioesphomeapi.api_pb2 import ClimateCommandRequest, ClimateMode
+from aioesphomeapi.api_pb2 import ClimateCommandRequest, ClimateMode, ListEntitiesClimateResponse
 from aioesphomeserver import ClimateEntity
 from aioesphomeserver import Device as EspHomeDevice
 
@@ -71,9 +71,35 @@ class HisenseClimateEntity(ClimateEntity):
     hisense_device.add_property_change_listener(self._on_hisense_property_change)
 
   async def build_list_entities_response(self):
-    response = await super().build_list_entities_response()
-    response.supported_custom_fan_modes.extend(self.supported_custom_fan_modes)
-    return response
+    # Not calling super() here: aioesphomeapi has, at various points, both
+    # added fields ClimateEntity doesn't know about yet (supported_custom_fan_modes)
+    # and dropped ones it still tries to set (unique_id was removed from this
+    # message at some point after aioesphomeserver was written against it).
+    # Building the kwargs ourselves and filtering to whatever the installed
+    # protobuf schema actually declares keeps this working across versions.
+    kwargs = dict(
+        object_id=self.object_id,
+        key=self.key,
+        name=self.name,
+        unique_id=self.unique_id,
+        supported_modes=self.supported_modes,
+        visual_min_temperature=self.visual_min_temperature,
+        visual_max_temperature=self.visual_max_temperature,
+        visual_target_temperature_step=self.visual_target_temperature_step,
+        supports_two_point_target_temperature=self.supports_two_point_target_temperature,
+        supported_fan_modes=self.supported_fan_modes,
+        supported_custom_fan_modes=self.supported_custom_fan_modes,
+        supported_swing_modes=self.supported_swing_modes,
+        supports_current_temperature=self.supports_current_temperature,
+        supports_action=self.supports_action,
+        supports_current_humidity=self.supports_current_humidity,
+        supports_target_humidity=self.supports_target_humidity,
+        visual_min_humidity=self.visual_min_humidity,
+        visual_max_humidity=self.visual_max_humidity,
+        supported_presets=self.supported_presets,
+    )
+    valid_fields = {f.name for f in ListEntitiesClimateResponse.DESCRIPTOR.fields}
+    return ListEntitiesClimateResponse(**{k: v for k, v in kwargs.items() if k in valid_fields})
 
   async def build_state_response(self):
     response = await super().build_state_response()
@@ -162,8 +188,14 @@ async def run_esphome_server(devices: List[Device], api_port: int, web_port: int
       project_version=__version__,
       manufacturer=f'Hisense ({primary.app})',
   )
-  for device in ac_devices:
-    esp_device.add_entity(HisenseClimateEntity(device))
+  entities = [HisenseClimateEntity(device) for device in ac_devices]
+  for entity in entities:
+    esp_device.add_entity(entity)
+  for entity in entities:
+    # Pull whatever the device already knows (even if that's just its
+    # power-on defaults) rather than showing the ESPHome library's generic
+    # visual_min_temperature/OFF placeholders until the next property change.
+    await entity._sync_state()
 
   logger.info('Starting ESPHome native API on port %d (web dashboard on %d) as "%s"', api_port,
              web_port, esp_device.name)
